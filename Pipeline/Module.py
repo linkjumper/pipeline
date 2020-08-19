@@ -20,11 +20,11 @@ class ValueType:
 
 class Module:
     def __init__(self):
-        self.cb = None
+        self.spawn_new_process = None
         self.relations = {}
 
     def set_process_pool_callback(self, func):
-        self.cb = func
+        self.spawn_new_process = func
 
     def create_relation(self, relation: RelationType, name, value=None):
         if name in self.relations:
