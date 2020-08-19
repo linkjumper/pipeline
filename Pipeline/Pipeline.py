@@ -26,15 +26,11 @@ class Dependency:
         if not dep in self.modulesAfter:
             self.modulesAfter.append(dep)
             self.afterEdges += 1
-        else:
-            print(f'add_after: {dep} in self.modulesBefore')
 
     def add_dependency_before(self, dep):
         if not dep in self.modulesBefore:
             self.modulesBefore.append(dep)
             self.beforeEdges += 1
-        else:
-            print(f'add_before: {dep} in self.modulesBefore')
 
     @staticmethod
     def _trigger(dep):
