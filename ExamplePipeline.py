@@ -5,10 +5,11 @@ from Pipeline.Exceptions import PipelineException
 import asyncio
 
 
-def heavy_task(val):
+def heavy_task(val=0):
     j = 0
     for i in range(10000000):
         j += 1
+
     return val + 1
 
 
@@ -18,9 +19,9 @@ class A(Module):
         self.a = self.create_relation(RelationType.provide, "a", 0)
 
     async def execute(self):
-        self.a.set(1)
+        ret = await self.spawn_new_process(heavy_task, self.a.get())
+        self.a.set(ret)
         self.print_module_values()
-        await self.cb(heavy_task, self.a.get())
 
 
 class B(Module):
@@ -30,9 +31,9 @@ class B(Module):
         self.b = self.create_relation(RelationType.provide, "b")
 
     async def execute(self):
-        self.b.set(self.a.get()+1)
+        ret = await self.spawn_new_process(heavy_task, self.a.get())
+        self.b.set(ret)
         self.print_module_values()
-        await self.cb(heavy_task, self.b.get())
 
 
 class C(Module):
@@ -42,9 +43,9 @@ class C(Module):
         self.c = self.create_relation(RelationType.provide, "c")
 
     async def execute(self):
-        self.c.set(self.a.get()+2)
+        ret = await self.spawn_new_process(heavy_task, self.a.get())
+        self.c.set(ret)
         self.print_module_values()
-        await self.cb(heavy_task, self.c.get())
 
 
 class D(Module):
@@ -54,9 +55,8 @@ class D(Module):
         self.c = self.create_relation(RelationType.require, "c")
 
     async def execute(self):
+        await self.spawn_new_process(heavy_task)
         self.print_module_values()
-        result = await self.cb(heavy_task, self.b.get()+self.c.get())
-        print(f'~D result -> {result}')
 
 
 if __name__ == "__main__":
