@@ -1,9 +1,9 @@
 import asyncio
 import concurrent.futures
-from Pipeline.Module import RelationType
-from Pipeline.Exceptions import *
 import gc as _gc
 import signal
+from Module import RelationType
+from Exceptions import DoubleProvideException
 
 
 class Dependency:
@@ -224,3 +224,4 @@ def print_dependencies(deps):
 #todo:
 # -make Module's getter setter easier to use
 # -measure modules execution time
+

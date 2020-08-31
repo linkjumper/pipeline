@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from Pipeline.Exceptions import *
+from abc import ABCMeta, abstractmethod
 
 
 class RelationType(Enum):
@@ -18,7 +18,7 @@ class ValueType:
         return self.value
 
 
-class Module:
+class Module(metaclass=ABCMeta):
     def __init__(self):
         self.spawn_new_process = None
         self.relations = {}
@@ -41,6 +41,7 @@ class Module:
     def name(self):
         return self.__class__.__name__
 
+    @abstractmethod
     async def execute(self):
         raise NotImplementedError()
 
