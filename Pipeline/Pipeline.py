@@ -2,8 +2,9 @@ import asyncio
 import concurrent.futures
 import gc as _gc
 import signal
-from Module import RelationType
-from Exceptions import DoubleProvideException
+import sys
+from Pipeline.Module import RelationType
+from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException
 
 
 class Dependency:
@@ -16,7 +17,6 @@ class Dependency:
         self.afterEdges = 0
         self.edgesToGo = 0
         self.event = None
-        self.deactivated = False
 
     def set_event_loop(self, loop):
         asyncio.set_event_loop(loop)
@@ -47,9 +47,6 @@ class Dependency:
     async def execute(self):
         await self.event.wait()
 
-        if self.deactivated:
-            return
-
         self.edgesToGo = self.beforeEdges + self.afterEdges
 
         await self.module.execute()
@@ -65,17 +62,17 @@ class Dependency:
         if not self.modulesAfter and not self.modulesBefore:
             self.start()
 
-    def terminate(self):
-        self.deactivated = True
-        self.stop()
-
 
 class Pipeline:
-    def __init__(self, modules, max_workers=8):
-        self.executor = concurrent.futures.ProcessPoolExecutor(max_workers=max_workers)
+    def __init__(self, modules, debug=False):
+        def _initializer():
+            # ignore SIGINT in the worker process's for graceful termination
+            # https://stackoverflow.com/a/63739433/7629888
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+        self.executor = concurrent.futures.ProcessPoolExecutor(initializer=_initializer)
         self.loop = None
         self.deps = []
-        self.run = True
+        self.debug = debug
 
         deps = []
         [deps.append(Dependency(m, m.name())) for m in modules]
@@ -131,8 +128,10 @@ class Pipeline:
                     if not found:
                         raise NoProvide(f'Nothing provides: {d.name} -> {name}')
 
+        if self.debug:
+            print_dependencies(deps)
+
         self.deps = deps
-        print_dependencies(deps)
 
     @staticmethod
     def _replace_all_refs(org_obj, new_obj):
@@ -147,25 +146,20 @@ class Pipeline:
         org_obj = new_obj
 
     async def _call_in_process_pool(self, func, *args):
-       return (await asyncio.gather(*[self.loop.run_in_executor(self.executor, func, *args)], loop=self.loop))[0]
+       return (await asyncio.gather(*[self.loop.run_in_executor(self.executor, func, *args)]))[0]
 
     def shutdown(self):
-        # Please note: the shutdown handler is called for every subprocess. This is not nice, but also not critical
-        self.run = False
         for d in self.deps:
-            d.terminate()
+            d.stop()
         self.executor.shutdown()
 
     async def _work(self, d):
-        while self.run:
+        while 1:
             await d.execute()
 
     async def work(self):
         print(f'Start Pipeline ...')
         self.loop = asyncio.get_event_loop()
-        self.loop.add_signal_handler(signal.SIGINT, self.shutdown)
-        self.loop.add_signal_handler(signal.SIGTERM, self.shutdown)
-
         jobs = [self._work(d) for d in self.deps]
 
         # initialize dependencies
@@ -177,7 +171,11 @@ class Pipeline:
             if d.edgesToGo == 0:
                 d.event.set()
 
-        await asyncio.gather(*jobs, loop=self.loop)
+        try:
+            await asyncio.gather(*jobs)
+        except:
+            self.shutdown()
+            raise
 
     def _find_cycles(self, deps):
         # based on CLRS depth-first search algorithm
@@ -218,10 +216,4 @@ def print_dependencies(deps):
         print(f'  before:')
         for b in o.modulesBefore:
             print(f'    {b.name}:  {id(b)}')
-
-
-
-#todo:
-# -make Module's getter setter easier to use
-# -measure modules execution time
 

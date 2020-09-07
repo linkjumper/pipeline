@@ -1,6 +1,5 @@
 from Pipeline.Module import Module, RelationType
 from Pipeline.Pipeline import Pipeline
-from Pipeline.Exceptions import PipelineException
 
 import asyncio
 
@@ -66,9 +65,5 @@ if __name__ == "__main__":
         asyncio.run(p.work())
     except KeyboardInterrupt:
         print(f'User Terminate')
-    except PipelineException as e:
-        print(f'{e.__class__.__name__}: {e}')
     except Exception as e:
-        print(e)
-
-
+        print(f'{e.__class__.__name__}: {e}')

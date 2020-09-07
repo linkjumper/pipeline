@@ -1,5 +1,6 @@
 from enum import Enum, auto
 from abc import ABCMeta, abstractmethod
+from Pipeline.Exceptions import KeyAlreadyExists
 
 
 class RelationType(Enum):
