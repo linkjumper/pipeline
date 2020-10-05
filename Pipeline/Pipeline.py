@@ -5,7 +5,7 @@ import signal
 import sys
 from Pipeline.Module import RelationType
 from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException, StopExecution
-
+from asyncio.exceptions import CancelledError
 
 class Dependency:
     def __init__(self, module, name):
@@ -69,6 +69,7 @@ class Pipeline:
         self.loop = None
         self.deps = []
         self.debug = debug
+        self.tasks = None
 
         deps = []
         [deps.append(Dependency(m, m.name())) for m in modules]
@@ -162,7 +163,7 @@ class Pipeline:
     async def work(self):
         print(f'Start Pipeline ...')
         self.loop = asyncio.get_event_loop()
-        tasks = [asyncio.create_task(self._work(d)) for d in self.deps]
+        self.tasks = [asyncio.create_task(self._work(d)) for d in self.deps]
 
         # initialize dependencies
         for d in self.deps:
@@ -174,20 +175,24 @@ class Pipeline:
                 d.event.set()
 
         try:
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-            # cancel all tasks on error
-            for t in tasks:
-                t.cancel()
-
+            done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
+            self.cancel_all_tasks()
             for t in done:
                 if t.exception():
                     raise t.exception()
+        except CancelledError:
+            print(f'all pending tasks cancelled')
         except StopExecution:
             raise
         except:
             self.shutdown()
             raise
+        finally:
+            self.tasks = None
+
+    def cancel_all_tasks(self):
+        for t in self.tasks:
+            t.cancel()
 
     def _find_cycles(self, deps):
         # based on CLRS depth-first search algorithm

@@ -1,5 +1,6 @@
 from Pipeline.Module import Module, RelationType
 from Pipeline.Pipeline import Pipeline
+from Pipeline.Exceptions import StopExecution
 
 import asyncio
 
@@ -45,6 +46,7 @@ class C(Module):
         ret = await self.spawn_new_process(heavy_task, self.a.get())
         self.c.set(ret)
         self.print_module_values()
+        #raise StopExecution('stop here')
 
 
 class D(Module):
@@ -58,11 +60,20 @@ class D(Module):
         self.print_module_values()
 
 
+async def main():
+    modules = [A(), B(), C(), D()]
+    p = Pipeline(modules)
+    while 1:
+        try:
+            await asyncio.gather(*[p.work()])
+        except StopExecution:
+            print(f'module execution stopped. restart..')
+    p.shutdown()
+
+
 if __name__ == "__main__":
     try:
-        modules = [A(), B(), C(), D()]
-        p = Pipeline(modules)
-        asyncio.run(p.work())
+        asyncio.run(main())
     except KeyboardInterrupt:
         print(f'User Terminate')
     except Exception as e:
