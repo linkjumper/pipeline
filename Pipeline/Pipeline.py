@@ -65,11 +65,7 @@ class Dependency:
 
 class Pipeline:
     def __init__(self, modules, debug=False):
-        def _initializer():
-            # ignore SIGINT in the worker process's for graceful termination
-            # https://stackoverflow.com/a/63739433/7629888
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-        self.executor = concurrent.futures.ProcessPoolExecutor(initializer=_initializer)
+        self.executor = concurrent.futures.ProcessPoolExecutor(initializer=self._initializer)
         self.loop = None
         self.deps = []
         self.debug = debug
@@ -132,6 +128,12 @@ class Pipeline:
             print_dependencies(deps)
 
         self.deps = deps
+
+    @staticmethod
+    def _initializer():
+        # ignore SIGINT in the worker process's for graceful termination
+        # https://stackoverflow.com/a/63739433/7629888
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     @staticmethod
     def _replace_all_refs(org_obj, new_obj):
