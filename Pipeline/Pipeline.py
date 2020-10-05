@@ -4,7 +4,7 @@ import gc as _gc
 import signal
 import sys
 from Pipeline.Module import RelationType
-from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException
+from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException, StopExecution
 
 
 class Dependency:
@@ -160,7 +160,7 @@ class Pipeline:
     async def work(self):
         print(f'Start Pipeline ...')
         self.loop = asyncio.get_event_loop()
-        jobs = [self._work(d) for d in self.deps]
+        tasks = [asyncio.create_task(self._work(d)) for d in self.deps]
 
         # initialize dependencies
         for d in self.deps:
@@ -172,7 +172,17 @@ class Pipeline:
                 d.event.set()
 
         try:
-            await asyncio.gather(*jobs)
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+            # cancel all tasks on error
+            for t in tasks:
+                t.cancel()
+
+            for t in done:
+                if t.exception():
+                    raise t.exception()
+        except StopExecution:
+            raise
         except:
             self.shutdown()
             raise

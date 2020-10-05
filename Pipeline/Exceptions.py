@@ -16,3 +16,7 @@ class DoubleProvideException(PipelineException):
 
 class NoProvide(PipelineException):
     pass
+
+
+class StopExecution(PipelineException):
+    pass
