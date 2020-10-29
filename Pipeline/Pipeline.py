@@ -2,10 +2,11 @@ import asyncio
 import concurrent.futures
 import gc as _gc
 import signal
-import sys
 from Pipeline.Module import RelationType
 from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException, StopExecution
 from asyncio.exceptions import CancelledError
+from Pipeline import Utils
+
 
 class Dependency:
     def __init__(self, module, name):
@@ -17,6 +18,7 @@ class Dependency:
         self.afterEdges = 0
         self.edgesToGo = 0
         self.event = None
+        self.skip = False
 
     def set_event_loop(self, loop):
         asyncio.set_event_loop(loop)
@@ -45,6 +47,9 @@ class Dependency:
         self.event.clear()
 
     async def execute(self):
+        if self.skip:
+            return
+
         await self.event.wait()
 
         self.edgesToGo = self.beforeEdges + self.afterEdges
@@ -62,6 +67,12 @@ class Dependency:
         if not self.modulesAfter and not self.modulesBefore:
             self.start()
 
+    def activate(self):
+        self.skip = False
+
+    def deactivate(self):
+        self.skip = True
+
 
 class Pipeline:
     def __init__(self, modules, debug=False):
@@ -70,6 +81,7 @@ class Pipeline:
         self.deps = []
         self.debug = debug
         self.tasks = None
+        self.run = True
 
         deps = []
         [deps.append(Dependency(m, m.name())) for m in modules]
@@ -157,7 +169,7 @@ class Pipeline:
         self.executor.shutdown()
 
     async def _work(self, d):
-        while 1:
+        while self.run:
             await d.execute()
 
     async def work(self):
@@ -169,30 +181,26 @@ class Pipeline:
         for d in self.deps:
             d.edgesToGo = d.beforeEdges
             d.set_event_loop(self.loop)
+            d.activate()  # only relevant for pipeline reuse
 
         for d in self.deps:
             if d.edgesToGo == 0:
                 d.event.set()
 
         try:
-            done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
-            self.cancel_all_tasks()
-            for t in done:
-                if t.exception():
-                    raise t.exception()
+            await Utils.wait(self.tasks)
         except CancelledError:
-            print(f'all pending tasks cancelled')
+            pass
         except StopExecution:
             raise
         except:
             self.shutdown()
             raise
         finally:
+            self.run = False
+            for d in self.deps:
+                d.deactivate()
             self.tasks = None
-
-    def cancel_all_tasks(self):
-        for t in self.tasks:
-            t.cancel()
 
     def _find_cycles(self, deps):
         # based on CLRS depth-first search algorithm

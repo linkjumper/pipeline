@@ -1,7 +1,7 @@
 from Pipeline.Module import Module, RelationType
 from Pipeline.Pipeline import Pipeline
 from Pipeline.Exceptions import StopExecution
-
+from Pipeline import Utils
 import asyncio
 
 
@@ -65,7 +65,7 @@ async def main():
     p = Pipeline(modules)
     while 1:
         try:
-            await asyncio.gather(*[p.work()])
+            await Utils.wait([asyncio.create_task(p.work())])
         except StopExecution:
             print(f'module execution stopped. restart..')
     p.shutdown()
