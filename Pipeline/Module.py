@@ -1,6 +1,6 @@
 from enum import Enum, auto
 from abc import ABCMeta, abstractmethod
-from Pipeline.Exceptions import KeyAlreadyExists
+from Pipeline.Exceptions import DoubleProvideException
 
 
 class RelationType(Enum):
@@ -21,17 +21,23 @@ class ValueType:
 
 class Module(metaclass=ABCMeta):
     def __init__(self):
-        self.spawn_new_process = None
         self.relations = {}
-
-    def set_process_pool_callback(self, func):
-        self.spawn_new_process = func
+        self.regexpr_relations = {}
+        self._skip = False  # flag to mark this module temporarily as skippable
 
     def create_relation(self, relation: RelationType, name, value=None):
         if name in self.relations:
-            raise KeyAlreadyExists(f'{name} already exists in self.relations')
+            raise DoubleProvideException(f'{name} already exists in self.relations')
         self.relations[name] = {'relation': relation, 'value': ValueType(value)}
+
+        if self.relations[name]['relation'] == RelationType.provide:
+            self.relations[name]['default'] = value
+
         return self.relations[name]['value']
+
+    def create_requires_by_regex(self, regex: str):
+        self.regexpr_relations[regex] = {}
+        return self.regexpr_relations[regex]
 
     def get(self, name):
         return self.relations[name]['value'].get()
@@ -50,4 +56,12 @@ class Module(metaclass=ABCMeta):
         print(f'{self.name()}')
         for name, rel in self.relations.items():
             print(f'  {rel["relation"]} {name}: {rel["value"].get()}')
+
+    def reset_provides(self):
+        for rel in self.relations.values():
+            if rel['relation'] == RelationType.provide:
+                rel['value'].set(rel['default'])
+
+    def skip_modules(self):
+        self._skip = True
 

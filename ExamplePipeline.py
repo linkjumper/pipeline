@@ -1,16 +1,6 @@
 from Pipeline.Module import Module, RelationType
 from Pipeline.Pipeline import Pipeline
-from Pipeline.Exceptions import StopExecution
-from Pipeline import Utils
 import asyncio
-
-
-def heavy_task(val=0):
-    j = 0
-    for i in range(10000000):
-        j += 1
-
-    return val + 1
 
 
 class A(Module):
@@ -19,8 +9,7 @@ class A(Module):
         self.a = self.create_relation(RelationType.provide, "a", 0)
 
     async def execute(self):
-        ret = await self.spawn_new_process(heavy_task, self.a.get())
-        self.a.set(ret)
+        await asyncio.sleep(0.5)
         self.print_module_values()
 
 
@@ -31,8 +20,8 @@ class B(Module):
         self.b = self.create_relation(RelationType.provide, "b")
 
     async def execute(self):
-        ret = await self.spawn_new_process(heavy_task, self.a.get())
-        self.b.set(ret)
+        await asyncio.sleep(0.5)
+        self.b.set(self.a.get() + 1)
         self.print_module_values()
 
 
@@ -43,10 +32,9 @@ class C(Module):
         self.c = self.create_relation(RelationType.provide, "c")
 
     async def execute(self):
-        ret = await self.spawn_new_process(heavy_task, self.a.get())
-        self.c.set(ret)
+        await asyncio.sleep(0.5)
+        self.c.set(self.a.get() + 2)
         self.print_module_values()
-        #raise StopExecution('stop here')
 
 
 class D(Module):
@@ -56,7 +44,6 @@ class D(Module):
         self.c = self.create_relation(RelationType.require, "c")
 
     async def execute(self):
-        await self.spawn_new_process(heavy_task)
         self.print_module_values()
 
 
@@ -64,11 +51,8 @@ async def main():
     modules = [A(), B(), C(), D()]
     p = Pipeline(modules)
     while 1:
-        try:
-            await Utils.wait([asyncio.create_task(p.work())])
-        except StopExecution:
-            print(f'module execution stopped. restart..')
-    p.shutdown()
+        e = await p.work()
+        print(e)
 
 
 if __name__ == "__main__":

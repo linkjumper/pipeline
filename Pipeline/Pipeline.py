@@ -1,14 +1,12 @@
 import asyncio
-import concurrent.futures
 import gc as _gc
-import signal
 from Pipeline.Module import RelationType
-from Pipeline.Exceptions import DoubleProvideException, NoProvide, CycleException, StopExecution
-from asyncio.exceptions import CancelledError
-from Pipeline import Utils
+from Pipeline.Exceptions import DoubleProvideException, CycleException
 
 
 class Dependency:
+    terminate = False  # flag to signal cancellation on all Modules
+
     def __init__(self, module, name):
         self.module = module
         self.name = name
@@ -18,7 +16,8 @@ class Dependency:
         self.afterEdges = 0
         self.edgesToGo = 0
         self.event = None
-        self.skip = False
+        self.deactivate = False  # flag to deactivate this module
+        Dependency.terminate = False
 
     def set_event_loop(self, loop):
         asyncio.set_event_loop(loop)
@@ -47,14 +46,24 @@ class Dependency:
         self.event.clear()
 
     async def execute(self):
-        if self.skip:
-            return
-
         await self.event.wait()
+
+        if Dependency.terminate:
+            return
 
         self.edgesToGo = self.beforeEdges + self.afterEdges
 
-        await self.module.execute()
+        if not self.deactivate and not self.module._skip:
+            self.module.reset_provides()
+            await self.module.execute()  # module.execute can set the self.module.skip flag too
+
+        if self.deactivate or self.module._skip:
+            self.skip_modules_after_this()
+
+        self.module._skip = False
+
+        if Dependency.terminate:
+            return
 
         for dep in self.modulesAfter:
             self._trigger(dep)
@@ -67,27 +76,30 @@ class Dependency:
         if not self.modulesAfter and not self.modulesBefore:
             self.start()
 
-    def activate(self):
-        self.skip = False
+    def deactivate_module(self):
+        self.deactivate = True
 
-    def deactivate(self):
-        self.skip = True
+    @classmethod
+    def cancel(cls):
+        Dependency.terminate = True
+
+    def skip_modules_after_this(self):
+        for d in self.modulesAfter:
+            d.module._skip = True
 
 
 class Pipeline:
     def __init__(self, modules, debug=False):
-        self.executor = concurrent.futures.ProcessPoolExecutor(initializer=self._initializer)
         self.loop = None
         self.deps = []
         self.debug = debug
-        self.tasks = None
+        self.tasks = []
         self.run = True
+        self.stop_event = None
+        all_provide_rels = {}
 
         deps = []
         [deps.append(Dependency(m, m.name())) for m in modules]
-
-        for d in deps:
-            d.module.set_process_pool_callback(self._call_in_process_pool)
 
         # hook the module dependencies together
         for d in deps:
@@ -135,18 +147,13 @@ class Pipeline:
                         if found:
                             break
                     if not found:
-                        raise NoProvide(f'Nothing provides: {d.name} -> {name}')
+                        print(f'Nothing provides: {d.name} -> {name}')
+                        d.deactivate_module()
 
         if self.debug:
             print_dependencies(deps)
 
         self.deps = deps
-
-    @staticmethod
-    def _initializer():
-        # ignore SIGINT in the worker process's for graceful termination
-        # https://stackoverflow.com/a/63739433/7629888
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     @staticmethod
     def _replace_all_refs(org_obj, new_obj):
@@ -160,47 +167,54 @@ class Pipeline:
         # finally also replace org_obj
         org_obj = new_obj
 
-    async def _call_in_process_pool(self, func, *args):
-       return (await asyncio.gather(*[self.loop.run_in_executor(self.executor, func, *args)]))[0]
-
-    def shutdown(self):
-        for d in self.deps:
-            d.stop()
-        self.executor.shutdown()
-
     async def _work(self, d):
         while self.run:
             await d.execute()
 
     async def work(self):
         print(f'Start Pipeline ...')
+        self.run = True
         self.loop = asyncio.get_event_loop()
         self.tasks = [asyncio.create_task(self._work(d)) for d in self.deps]
+
+        self.stop_event = asyncio.Event()
 
         # initialize dependencies
         for d in self.deps:
             d.edgesToGo = d.beforeEdges
             d.set_event_loop(self.loop)
-            d.activate()  # only relevant for pipeline reuse
 
         for d in self.deps:
             if d.edgesToGo == 0:
                 d.event.set()
 
+        done = []
+        pending = []
+
         try:
-            await Utils.wait(self.tasks)
-        except CancelledError:
-            pass
-        except StopExecution:
-            raise
-        except:
-            self.shutdown()
-            raise
+            done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
         finally:
             self.run = False
-            for d in self.deps:
-                d.deactivate()
-            self.tasks = None
+
+            for t in self.tasks:
+                if not t.cancelled():
+                    t.cancel()
+            self.tasks = []
+
+            self.stop_event.set()
+
+            for t in done:
+                if t.exception():
+                    return t.exception()  # return first occurred exception
+
+    async def stop(self):
+        self.run = False
+        Dependency.cancel()
+        for d in self.deps:
+            d.start()
+
+        self.stop_event.wait()
+        print('DEBUG: Stop Pipeline!')
 
     def _find_cycles(self, deps):
         # based on CLRS depth-first search algorithm

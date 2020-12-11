@@ -1,19 +1,12 @@
 # pipeline
 
-The pipeline is a data flow-oriented implementation
-of an acyclic directed graph. The modules are executed in quasi-parallel using the async await mechanism. In addition, tasks can be distributed over several processes.
+The pipeline is a data flow-oriented implementation of an acyclic directed graph using async await. The modules are executed immediately if they are marked as executable.
 
 The pipeline concept is a Python implementation of [C++ steamlein](https://github.com/gottliebtfreitag/steamlein).
 
-|![](images/1_parallel_modules.png?raw=true)|![](images/4_timingdiagram.png?raw=true)|
-|-|-|
-|*Parallel module execution* | *Timing diagram (see example code)*|
-
-
-|![](images/2_concatenated_nested_modules.png?raw=true)|
+|![](images/parallel_module_execution.png?raw=true)|
 |-|
-|*Concatenated nested modules*|
+|*Parallel module execution* |
 
-|![](images/3_multi_provide_require.png?raw=true)|
-|-|
-|*Multi provide require*|
+Limitations:
+- single core
